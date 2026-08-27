@@ -1,16 +1,93 @@
-import * as cdk from 'aws-cdk-lib/core';
-import { Construct } from 'constructs';
-// import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cdk from 'aws-cdk-lib';
+import {Construct} from 'constructs';
+import * as cfn_inc from 'aws-cdk-lib/cloudformation-include';
 
-export class SsarpStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
+//---- NEW TOOLBOXES ARE BEING IMPORTED ----//
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 
-    // The code that defines your stack goes here
 
-    // example resource
-    // const queue = new sqs.Queue(this, 'SsarpQueue', {
-    //   visibilityTimeout: cdk.Duration.seconds(300)
-    // });
+export class SsarpStack extends cdk.Stack{
+    constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+        super(scope, id, props);
+
+      // 1. The Glue(Loads your ymal file
+    const securityFoundation = new cfn_inc.CfnInclude(this, 'SecurityFoundationTemplate',{
+      templateFile: 'security-base.yaml',
+    });
+
+      // 2. The Filing Cabinet
+    const auditTable = new dynamodb.Table(this, 'AuditedLogTable', {
+      partitionKey:{ name: 'alertId', type: dynamodb.AttributeType.STRING}, 
+    billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // Only pay exactly for what we use!
+    });  
+
+      // 3. The Inbox (SQS Queue)
+    const alertQueue = new sqs.Queue(this, 'SecurityAlertQueue');
+    
+      // 4. The Security Guard (EventBridge Rule)
+    const alertRule = new events.Rule(this, 'CatchSecurityAlertRule', {
+      eventPattern: {
+        source: ['aws.securityhub'], //Tells the Guard to specifically use guardduty alerts
+      },
+    });
+
+        // 5. The Workers (Our Python Scripts)
+    const enrichmentLambda = new lambda.Function(this, 'EnrichmentWorker', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'enrichment.lambda_handler',
+      code: lambda.Code.fromAsset('lambdas'), // Sucks up your 'lambdas' folder!
+    });
+
+    const severityLambda = new lambda.Function(this, 'SeverityWorker', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'severity_check.lambda_handler',
+      code: lambda.Code.fromAsset('lambdas'),
+    });
+
+    const quarantineLambda = new lambda.Function(this, 'QuarantineWorker', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'quarantine.lambda_handler',
+      code: lambda.Code.fromAsset('lambdas'),
+    });
+
+        // 6. Convert our workers into Flowchart Steps
+    const enrichStep = new tasks.LambdaInvoke(this, 'Enrich Alert', {
+      lambdaFunction: enrichmentLambda,
+      outputPath: '$.Payload', 
+    });
+
+    const severityStep = new tasks.LambdaInvoke(this, 'Check Severity', {
+      lambdaFunction: severityLambda,
+      outputPath: '$.Payload',
+    });
+
+    const quarantineStep = new tasks.LambdaInvoke(this, 'Lockdown Resource', {
+      lambdaFunction: quarantineLambda,
+      outputPath: '$.Payload',
+    });
+
+    // 7. Draw the Flowchart!
+    const flowchart = enrichStep
+      .next(severityStep)
+      .next(
+        new sfn.Choice(this, 'Is it Critical?')
+          .when(sfn.Condition.stringEquals('$.severity', 'CRITICAL'), quarantineStep)
+          .otherwise(new sfn.Pass(this, 'Send to SNS (Coming soon)'))
+      );
+
+    // 8. Hire the Manager (Build the State Machine)
+    const pipeline = new sfn.StateMachine(this, 'SecurityPipeline', {
+      definitionBody: sfn.DefinitionBody.fromChainable(flowchart),
+    });
+
+        // 9. Hand the Manager's phone number to the Security Guard
+    alertRule.addTarget(new targets.SfnStateMachine(pipeline));
+
   }
-}
+}  

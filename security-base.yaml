@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Security Foundation Tier 1
+
+Resources:
+# AWS SNS Topic for Security Alerts
+  SecurityAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${AWS::StackName}-security-alerts"
+      DisplayName: !Sub "${AWS::StackName}-security-alerts"
+
+# IAM Role for Security Alerts
+
+  SecurityAlertRole:
+    Type: AWS::IAM::Role
+    Properties:
+    RoleName: !SUB "${AWS::StackName}-StepFunctions-Role"
+
+# StepFunction Role Allowed
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+
+#What it can do
+
+      Policies:
+        - PolicyName: Publish to SNS
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref SecurityAlertTopic
