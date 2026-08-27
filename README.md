@@ -19,7 +19,10 @@ The pipeline uses a 5-step workflow managed by AWS Step Functions:
 
 ## Architecture & Engineering Decisions
 
-**Hybrid Infrastructure as Code (IaC)**
-To follow strict security best practices, this project splits the infrastructure into two parts:
-1. **The Security Foundation (Raw CloudFormation YAML):** The highly sensitive permissions (IAM Roles) and notification channels (SNS) are written in plain YAML. This allows a security team to easily read and approve the permissions without digging through application code.
-2. **The Smart Application (AWS CDK with TypeScript):** The queues, databases, and workflow logic are built using modern AWS CDK. The CDK app imports the raw YAML file using the `CfnInclude` tool to glue the two pieces together seamlessly.
+**Hybrid Infrastructure as Code (IaC) & Separation of Concerns**
+Why use both CloudFormation and AWS CDK? To satisfy a strict enterprise security requirement: *Separation of Concerns*.
+
+1. **The "Dangerous" Stuff (Raw CloudFormation YAML):** IAM Roles (which control who has power) and SNS Topics (which control data leaving the AWS account) are highly sensitive. Security Teams demand these are kept in a separate, plain-text YAML file. This allows auditors to quickly read and approve the security boundaries without digging through hundreds of lines of application code. We only created two resources here because they are the only ones security cares about!
+2. **The Application Plumbing (AWS CDK with TypeScript):** The queues, databases, and workflow logic (SQS, DynamoDB, Step Functions) are just the application's "plumbing." Because security teams don't need to manually audit the plumbing, developers are free to build this rapidly using TypeScript and the AWS CDK. 
+
+To make them work together, the CDK app uses the `CfnInclude` tool to suck up the raw YAML file, seamlessly gluing the strict security foundation and the fast application logic together into one perfect deployment.
