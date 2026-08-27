@@ -1,14 +1,25 @@
-# Welcome to your CDK TypeScript project
+# Serverless Security Alert Response Pipeline
 
-This is a blank project for CDK development with TypeScript.
+## The Problem
+Security teams get flooded with hundreds of alerts every day. When humans have to check every single alert manually, they get "alert fatigue." By the time someone wakes up to check a critical alert at 3:00 AM, a hacker might have already done serious damage.
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+## The Solution
+This project is an automated AWS first responder. It is a serverless pipeline that catches security alarms, looks up helpful background information, and automatically locks down critical threats in seconds without waiting for a human.
 
-## Useful commands
+## How It Works
+The pipeline uses a 5-step workflow managed by AWS Step Functions:
 
-* `npm run build`   type-check the project
-* `npm run watch`   watch for changes and type-check
-* `npm run test`    perform the jest unit tests
-* `npx cdk deploy`  deploy this stack to your default AWS account/region
-* `npx cdk diff`    compare deployed stack with current state
-* `npx cdk synth`   emits the synthesized CloudFormation template
+1. **Catch (EventBridge & SQS):** When a security alarm goes off (like AWS Security Hub detecting a hacked server), EventBridge catches it. It passes the alarm to an SQS queue so no alerts are ever dropped, even if a thousand come in at once.
+2. **Investigate (Python Lambda):** The first script acts like a detective. It opens the raw alert and adds helpful background context (like finding out which team owns the hacked server).
+3. **Judge (Python Lambda):** The second script looks at the evidence and decides if the threat is "Critical" (active hacker) or "Low" (minor misconfiguration).
+4. **Act (Python Lambda & SNS):** 
+   - If the threat is **Critical**, the Quarantine script uses `boto3` to automatically attach a "Deny-All" policy to the compromised resource, locking it down instantly.
+   - If the threat is **Low**, it skips the lockdown and sends an email/Slack message to the team via Amazon SNS.
+5. **Audit (DynamoDB):** Every single action the system takes is permanently saved in a DynamoDB table so auditors can review exactly what happened and when.
+
+## Architecture & Engineering Decisions
+
+**Hybrid Infrastructure as Code (IaC)**
+To follow strict security best practices, this project splits the infrastructure into two parts:
+1. **The Security Foundation (Raw CloudFormation YAML):** The highly sensitive permissions (IAM Roles) and notification channels (SNS) are written in plain YAML. This allows a security team to easily read and approve the permissions without digging through application code.
+2. **The Smart Application (AWS CDK with TypeScript):** The queues, databases, and workflow logic are built using modern AWS CDK. The CDK app imports the raw YAML file using the `CfnInclude` tool to glue the two pieces together seamlessly.
