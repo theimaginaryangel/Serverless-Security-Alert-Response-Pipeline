@@ -20,6 +20,7 @@ It also has a live dashboard where you can watch everything happening in real ti
 *   **AWS Step Functions (The Manager):** This is the boss who runs the flowchart. It receives the alarm from EventBridge and sends it through a multi-step workflow: first to the investigator, then to the judge, and finally to the enforcer. You can literally watch a visual flowchart light up green in real time in the AWS Console.
 *   **AWS Lambda with Python (The Workers):** These are three small Python scripts that do the actual work. They only run when they are needed (that is what "serverless" means), and you only pay for the exact milliseconds they run.
 *   **Amazon DynamoDB (The Filing Cabinet):** Every single action the system takes is permanently saved here. If an auditor asks, "What happened to that compromised account on August 28th?", you can pull up the exact record.
+*   **Amazon SQS (The Waiting Room):** EventBridge does not hand alerts directly to Step Functions. Instead, it drops them into this queue first. If a thousand alarms fire at the exact same time, SQS holds them in line so no alerts are ever lost, even if the pipeline is busy processing another one. A small dispatcher Lambda reads from the queue and starts a Step Functions execution for each message.
 *   **Amazon SNS (The Phone Tree):** For non-critical alerts that do not need automatic lockdown, SNS sends an email or Slack notification to the human security team so they can investigate at their own pace.
 *   **AWS SSM Parameter Store (The Address Book):** When AWS creates your database, it gives it a random generated name. Instead of hardcoding that name, we save it in SSM. The frontend asks SSM at runtime: "What is the database name?" This is how enterprise cloud applications avoid configuration drift.
 *   **AWS CodePipeline (The Automated Courier):** Every time you push code to GitHub, CodePipeline automatically downloads your code, builds it, and deploys the updated infrastructure to AWS. You never have to manually deploy again.
@@ -33,11 +34,13 @@ When you run `npx cdk deploy`, here is everything that gets created in your AWS 
 
 1.  **The Security Foundation (`security-base.yaml`):** AWS reads the YAML file and creates an IAM execution role (the "keys to the building") and an SNS notification topic (the "phone tree"). These are isolated in their own file so auditors can review them independently.
 2.  **The Filing Cabinet (DynamoDB Table):** A database table called `AuditedLogTable` is created. Every alert that flows through the pipeline gets permanently recorded here with a unique `alertId`.
-3.  **The Alarm Sensor (EventBridge Rule):** A rule is created that says: "If ANY event comes from `aws.securityhub`, catch it and send it to the Step Functions pipeline."
-4.  **The Three Workers (Lambda Functions):** Three Python scripts are uploaded from your `lambdas/` folder and deployed as serverless functions with a 30-second timeout each.
-5.  **The Flowchart (Step Functions State Machine):** A visual workflow is created that chains the three workers together: Enrichment, then Severity Check, then a decision branch (Critical goes to Quarantine, non-critical goes to SNS).
-6.  **The Address Book (SSM Parameters):** The randomly generated DynamoDB table name and Step Functions ARN are saved to SSM so the Next.js frontend can find them dynamically.
-7.  **The Permissions (IAM Grants):** The Quarantine worker is given explicit permission to read/write to DynamoDB (`grantReadWriteData`) and to attach IAM policies to compromised roles (`iam:PutRolePolicy`).
+3.  **The Waiting Room (SQS Queue):** A queue called `SecurityAlertQueue` is created. EventBridge drops alerts here instead of sending them directly to Step Functions. This buffers alert bursts so nothing is ever lost.
+4.  **The Alarm Sensor (EventBridge Rule):** A rule is created that says: "If ANY event comes from `aws.securityhub`, catch it and drop it into the SQS queue."
+5.  **The Dispatcher (Lambda Function):** A small Python script that wakes up whenever a message lands in the SQS queue, reads it, and starts a Step Functions execution for that alert.
+6.  **The Three Workers (Lambda Functions):** Three Python scripts are uploaded from your `lambdas/` folder and deployed as serverless functions with a 30-second timeout each.
+7.  **The Flowchart (Step Functions State Machine):** A visual workflow is created that chains the three workers together: Enrichment, then Severity Check, then a decision branch (Critical goes to Quarantine, non-critical goes to SNS).
+8.  **The Address Book (SSM Parameters):** The randomly generated DynamoDB table name and Step Functions ARN are saved to SSM so the Next.js frontend can find them dynamically.
+9.  **The Permissions (IAM Grants):** The Quarantine worker is given explicit permission to read/write to DynamoDB (`grantReadWriteData`) and to attach IAM policies to compromised roles (`iam:PutRolePolicy`).
 
 ---
 
@@ -45,11 +48,13 @@ When you run `npx cdk deploy`, here is everything that gets created in your AWS 
 
 When AWS Security Hub detects a real threat (like a hacker using stolen credentials), here is the step-by-step story of what happens automatically in seconds:
 
-1.  **Catch (EventBridge):** AWS Security Hub fires an alarm. EventBridge is watching 24/7. It catches the alarm and passes the raw JSON data to Step Functions.
-2.  **Investigate (Enrichment Lambda):** The first Python worker opens the alarm and investigates it. It digs into the nested JSON to find: What resource was affected? What type is it (IAM Role? S3 Bucket? EC2 Server)? How severe does Security Hub think it is? It packages all this context together into a clean report.
-3.  **Judge (Severity Check Lambda):** The second Python worker reads the enrichment report and makes a decision. It checks two things: the severity hint from the enrichment step, and the raw text of the alert for keywords like "CRITICAL" or "UNAUTHORIZED." Based on this, it stamps the alert as `CRITICAL`, `HIGH`, or `LOW`.
-4.  **Decide (Step Functions Choice):** Step Functions looks at the severity stamp. If it says `CRITICAL`, the alert is routed to the Quarantine worker. If it says anything less, it gets routed to SNS for human notification.
-5.  **Lockdown (Quarantine Lambda):** This is the enforcer. It does three things:
+1.  **Catch (EventBridge):** AWS Security Hub fires an alarm. EventBridge is watching 24/7. It catches the alarm and drops the raw JSON into the SQS queue.
+2.  **Buffer (SQS Queue):** The alarm sits safely in the queue. If a hundred alarms fire at the same second, they all wait in line here. Nothing is ever dropped, even if the pipeline is busy.
+3.  **Dispatch (Dispatcher Lambda):** A small Python script wakes up the moment a message lands in the queue. It reads the message and starts a Step Functions execution for that alert.
+4.  **Investigate (Enrichment Lambda):** The first pipeline worker opens the alarm and investigates it. It digs into the nested JSON to find: What resource was affected? What type is it (IAM Role? S3 Bucket? EC2 Server)? How severe does Security Hub think it is? It packages all this context together into a clean report.
+5.  **Judge (Severity Check Lambda):** The second Python worker reads the enrichment report and makes a decision. It checks two things: the severity hint from the enrichment step, and the raw text of the alert for keywords like "CRITICAL" or "UNAUTHORIZED." Based on this, it stamps the alert as `CRITICAL`, `HIGH`, or `LOW`.
+6.  **Decide (Step Functions Choice):** Step Functions looks at the severity stamp. If it says `CRITICAL`, the alert is routed to the Quarantine worker. If it says anything less, it gets routed to SNS for human notification.
+7.  **Lockdown (Quarantine Lambda):** This is the enforcer. It does three things:
     *   **Guardrail Check:** Before touching anything, it checks if the compromised resource is on the protected allowlist (`Admin`, `AdministratorAccess`, `cli-user`). If it is, the script refuses to quarantine it and logs a safe "SKIPPED" record instead.
     *   **Attach DenyAll Policy:** If the resource is NOT protected, it uses `boto3` (the official AWS Python library) to attach an inline policy called `AutomatedQuarantine-DenyAll` directly onto the compromised IAM role. This policy says: "You are not allowed to do anything, anywhere." The compromised account is instantly frozen.
     *   **Log to DynamoDB:** Regardless of what happened (quarantined, skipped, or failed), the script ALWAYS saves a complete audit record to DynamoDB with the alert ID, timestamp, description, severity, action taken, and target resource.
@@ -110,6 +115,7 @@ You never have to manually deploy your backend again. Here is how the automation
 *   **`security-base.yaml`:** The security auditor's file. Contains only the IAM execution role and the SNS notification topic in plain YAML.
 
 ### Python Workers (Lambda Functions)
+*   **`lambdas/dispatcher.py`:** The queue reader. Triggered automatically whenever a message lands in the SQS queue. Reads the raw EventBridge event from the message body and calls `start_execution()` on the Step Functions state machine.
 *   **`lambdas/enrichment.py`:** Opens the raw alarm, navigates the nested Security Hub JSON structure (`detail.findings[0].Resources[0].Id`), extracts the resource ID, resource type, severity label, title, and description, and packages it all into a clean report.
 *   **`lambdas/severity_check.py`:** Reads the enrichment report and the raw alarm text. Searches for keywords like "CRITICAL" and "UNAUTHORIZED." Stamps the alert with a severity decision and passes the target resource ID forward.
 *   **`lambdas/quarantine.py`:** The enforcer. Checks the allowlist, attempts IAM lockdown via `put_role_policy`, handles errors gracefully (including `NoSuchEntity` for simulations), and ALWAYS logs the complete audit record to DynamoDB using `table.put_item()`.

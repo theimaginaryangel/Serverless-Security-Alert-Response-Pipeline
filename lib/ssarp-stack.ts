@@ -10,6 +10,7 @@ import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as lambdaEvents from 'aws-cdk-lib/aws-lambda-event-sources';
 
 
 export class SsarpStack extends cdk.Stack{
@@ -113,8 +114,32 @@ export class SsarpStack extends cdk.Stack{
       stringValue: pipeline.stateMachineArn,
     });
 
-        // 9. Hand the Manager's phone number to the Security Guard
-    alertRule.addTarget(new targets.SfnStateMachine(pipeline));
+    // ==========================================
+    // 9. WIRE THE FULL BUFFERED PIPELINE
+    // EventBridge → SQS (buffer) → Dispatcher Lambda → Step Functions
+    // ==========================================
+
+    // 9a. Point the Security Guard at the SQS Queue (not Step Functions directly)
+    alertRule.addTarget(new targets.SqsQueue(alertQueue));
+
+    // 9b. Create a Dispatcher worker that reads from SQS and starts Step Functions
+    const dispatcherLambda = new lambda.Function(this, 'DispatcherWorker', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'dispatcher.lambda_handler',
+      code: lambda.Code.fromAsset('lambdas'),
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        STATE_MACHINE_ARN: pipeline.stateMachineArn
+      }
+    });
+
+    // 9c. Give the dispatcher permission to start Step Functions executions
+    pipeline.grantStartExecution(dispatcherLambda);
+
+    // 9d. Tell the dispatcher to wake up whenever a message lands in the SQS queue
+    dispatcherLambda.addEventSource(new lambdaEvents.SqsEventSource(alertQueue, {
+      batchSize: 1, // Process one alert at a time for clean audit trails
+    }));
 
   }
 }  
