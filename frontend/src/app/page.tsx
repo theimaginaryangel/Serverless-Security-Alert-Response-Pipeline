@@ -29,6 +29,9 @@ export default function Dashboard() {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [filter, setFilter] = useState<string>("ALL");
 
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+
   const loadEvents = async () => {
     setLoading(true);
     try {
@@ -41,6 +44,31 @@ export default function Dashboard() {
       setStatusMessage("Unable to connect to internal API route.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSimulate = async () => {
+    setIsSimulating(true);
+    try {
+      await fetch("/api/simulate", { method: "POST" });
+      // Wait 3 seconds for Step Functions and Lambda to process it and write to DynamoDB
+      setTimeout(() => loadEvents(), 3000);
+    } catch {
+      alert("Simulation failed.");
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setIsResetting(true);
+    try {
+      await fetch("/api/reset", { method: "POST" });
+      await loadEvents();
+    } catch {
+      alert("Reset failed.");
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -77,8 +105,24 @@ export default function Dashboard() {
                 <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              {dataSource === "aws-live" ? "AWS DynamoDB Live" : "Active / Ready"}
+              {dataSource === "aws-live" ? "AWS Live" : "Active"}
             </div>
+
+            <button
+              onClick={handleReset}
+              disabled={isResetting}
+              className="text-xs font-medium text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
+            >
+              {isResetting ? "Resetting..." : "Reset Sandbox"}
+            </button>
+
+            <button
+              onClick={handleSimulate}
+              disabled={isSimulating}
+              className="text-xs font-medium text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-md transition-colors shadow-sm disabled:opacity-50"
+            >
+              {isSimulating ? "Injecting Threat..." : "Launch Simulated Attack"}
+            </button>
 
             <button
               onClick={loadEvents}
