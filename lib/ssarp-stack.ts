@@ -48,18 +48,21 @@ export class SsarpStack extends cdk.Stack{
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'enrichment.lambda_handler',
       code: lambda.Code.fromAsset('lambdas'), // Sucks up your 'lambdas' folder!
+      timeout: cdk.Duration.seconds(30),
     });
 
     const severityLambda = new lambda.Function(this, 'SeverityWorker', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'severity_check.lambda_handler',
       code: lambda.Code.fromAsset('lambdas'),
+      timeout: cdk.Duration.seconds(30),
     });
 
     const quarantineLambda = new lambda.Function(this, 'QuarantineWorker', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'quarantine.lambda_handler',
       code: lambda.Code.fromAsset('lambdas'),
+      timeout: cdk.Duration.seconds(30),
       environment: {
         TABLE_NAME: auditTable.tableName
       }
