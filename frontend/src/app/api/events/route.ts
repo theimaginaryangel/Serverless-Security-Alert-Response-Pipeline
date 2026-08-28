@@ -100,9 +100,9 @@ export async function GET() {
 
     if (items.length === 0) {
       return NextResponse.json({
-        source: "aws-empty",
-        message: "Connected to AWS DynamoDB successfully. No alerts recorded yet in this table.",
-        events: FALLBACK_READABLE_EVENTS
+        source: "aws-live",
+        message: "Connected to AWS DynamoDB successfully. Database is currently clean.",
+        events: []
       });
     }
 

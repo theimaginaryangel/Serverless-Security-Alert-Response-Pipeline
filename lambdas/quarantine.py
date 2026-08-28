@@ -59,7 +59,35 @@ def lambda_handler(event, _context):
         print(f"FAILED to quarantine resource: {e}")
         action_status = "FAILED"
 
-    # 4. Return the final case report
+    # NEW: 4. Log the result to DynamoDB!
+    import os
+    import datetime
+    
+    table_name = os.environ.get('TABLE_NAME')
+    if table_name:
+        dynamodb = boto3.resource('dynamodb')
+        table = dynamodb.Table(table_name)
+        
+        # Safely extract the original finding details
+        finding = event.get('full_details', {}).get('original_alert', {}).get('detail', {}).get('findings', [{}])[0]
+        alert_id = finding.get('Id', f"ALERT-{target_resource}")
+        
+        try:
+            table.put_item(Item={
+                'alertId': alert_id,
+                'timestamp': finding.get('CreatedAt', datetime.datetime.now().isoformat()),
+                'findingType': finding.get('Title', 'Automated Quarantine Action'),
+                'description': finding.get('Description', 'Resource isolated by security pipeline.'),
+                'severity': 'CRITICAL',
+                'status': action_status,
+                'action_taken': 'Attached DenyAll Policy',
+                'resource': target_resource
+            })
+            print(f"Successfully logged {alert_id} to DynamoDB!")
+        except Exception as db_err:
+            print(f"Failed to write to DynamoDB: {db_err}")
+
+    # 5. Return the final case report
     return {
         "status": action_status,
         "action_taken": "Attached DenyAll Policy",

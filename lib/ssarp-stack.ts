@@ -60,7 +60,19 @@ export class SsarpStack extends cdk.Stack{
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'quarantine.lambda_handler',
       code: lambda.Code.fromAsset('lambdas'),
+      environment: {
+        TABLE_NAME: auditTable.tableName
+      }
     });
+
+    // CRITICAL FIX: Give the quarantine worker permission to write to the database!
+    auditTable.grantReadWriteData(quarantineLambda);
+
+    // Give the quarantine worker permission to actually attach the DenyAll policy to hacked roles
+    quarantineLambda.addToRolePolicy(new cdk.aws_iam.PolicyStatement({
+      actions: ['iam:PutRolePolicy'],
+      resources: ['*']
+    }));
 
         // 6. Convert our workers into Flowchart Steps
     const enrichStep = new tasks.LambdaInvoke(this, 'Enrich Alert', {
