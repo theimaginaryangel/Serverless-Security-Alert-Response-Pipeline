@@ -107,7 +107,7 @@ export async function GET() {
     }
 
     const formattedEvents: FormattedSecurityEvent[] = items.map((item, index) => ({
-      id: item.alert_id || item.id || `EVT-${index + 1}`,
+      id: item.alertId || item.alert_id || item.id || `EVT-${index + 1}`,
       timestamp: item.timestamp || new Date().toISOString(),
       findingType: item.findingType || item.title || "Security Finding",
       description: item.description || "Automated security event processed by pipeline.",

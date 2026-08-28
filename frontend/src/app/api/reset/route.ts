@@ -29,7 +29,7 @@ export async function POST() {
     let deletedCount = 0;
     for (const item of items) {
        // Only delete if it's a simulation (id contains SIM)
-       const alertId = item.alert_id || item.id || "";
+       const alertId = item.alertId || item.alert_id || item.id || "";
        if (alertId.includes("SIM-")) {
          await docClient.send(new DeleteCommand({
            TableName: tableName,
