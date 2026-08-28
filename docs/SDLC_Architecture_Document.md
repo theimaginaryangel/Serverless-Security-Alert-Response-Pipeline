@@ -24,6 +24,12 @@ The Serverless Security Alert Response Pipeline (SSARP) is an automated, event-d
        [ Amazon EventBridge ]
                  │
                  ▼
+        [ Amazon SQS Queue ]
+                 │
+                 ▼
+    [ Dispatcher Worker (Lambda) ]
+                 │
+                 ▼
     [ AWS Step Functions (State Machine) ]
                  │
         ┌────────┴────────┐
@@ -74,8 +80,8 @@ To eliminate hardcoded values and configuration drift:
 
 | Component | Technology | Role |
 | :--- | :--- | :--- |
-| **Ingestion Engine** | Amazon EventBridge | Catches `aws.securityhub` findings and routes to Step Functions. |
-| **Buffer Queue** | Amazon SQS | Provides dead-letter buffering and decoupling for high-throughput spikes. |
+| **Ingestion Engine** | Amazon EventBridge | Catches `aws.securityhub` findings and routes to the SQS Buffer Queue. |
+| **Buffer Queue & Routing** | Amazon SQS & Lambda | SQS absorbs high-throughput spikes; Dispatcher Lambda reads messages and triggers the state machine. |
 | **Workflow Engine** | AWS Step Functions | Orchestrates the multi-stage triage DAG (Standard Workflow). |
 | **Triage Workers** | AWS Lambda (Python 3.12) | Executes lightweight enrichment, severity analysis, and IAM quarantine logic (30s timeout). |
 | **Audit Repository** | Amazon DynamoDB | Key-value storage (`alertId` primary key) with pay-per-request billing. |

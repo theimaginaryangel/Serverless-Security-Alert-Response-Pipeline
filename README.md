@@ -13,6 +13,12 @@ An event-driven, automated security triage and incident containment pipeline bui
        [ EventBridge Rule ]
                │
                ▼
+         [ Amazon SQS Queue ]
+               │
+               ▼
+     [ Dispatcher Worker (Lambda) ]
+               │
+               ▼
      [ Step Functions Flow ]
        ├── 1. Enrichment Worker (Python Lambda)
        ├── 2. Severity Evaluation Worker (Python Lambda)
@@ -40,7 +46,8 @@ An event-driven, automated security triage and incident containment pipeline bui
 - **Application Layer (AWS CDK v2 TypeScript):** Declares dynamic cloud services (Step Functions state machine, EventBridge rules, SQS queues, DynamoDB table, Lambda workers) using `CfnInclude` to merge the foundation template.
 - **CI/CD Pipeline Layer (AWS CodePipeline):** GitOps-driven automated build and deployment pipeline connected to GitHub via AWS CodeStar Connections. Every push to `main` triggers a complete synth and CloudFormation deployment.
 
-### 2. State Machine & Automated Containment
+### 2. Event Routing, State Machine & Automated Containment
+- **Buffered Dispatch (`lambdas/dispatcher.py`):** SQS event source mapping reads queued EventBridge alerts and invokes Step Functions to prevent dropped alerts during burst traffic.
 - **Enrichment (`lambdas/enrichment.py`):** Extracts resource IDs, finding types, descriptions, and metadata from raw AWS Security Hub payloads.
 - **Severity Evaluation (`lambdas/severity_check.py`):** Triages findings based on compliance criteria and risk indicators.
 - **Quarantine & Containment (`lambdas/quarantine.py`):** 
@@ -66,6 +73,7 @@ An event-driven, automated security triage and incident containment pipeline bui
 │   ├── pipeline-stack.ts        # AWS CodePipeline CI/CD definition
 │   └── app-stage.ts             # Deployment stage construct
 ├── lambdas/
+│   ├── dispatcher.py            # SQS queue processor and Step Functions trigger
 │   ├── enrichment.py            # Event context enrichment logic
 │   ├── severity_check.py        # Automated severity evaluation
 │   └── quarantine.py            # Automated IAM lockdown & DynamoDB audit logging
