@@ -1,28 +1,106 @@
-# Serverless Security & Compliance Response Pipeline
+# Serverless Security Alert Response Pipeline (SSARP)
 
-## The Problem
-Security teams get flooded with hundreds of alerts every day. When humans have to check every single alert manually, they get "alert fatigue." By the time someone wakes up to check a critical alert at 3:00 AM—whether it is an active hacker or an accidentally exposed S3 bucket—the damage might have already been done.
+An event-driven, automated security triage and incident containment pipeline built on AWS. Automatically ingests security findings, enriches alerts with context, triages severity, applies automated quarantine to compromised resources, and visualizes incident state on an enterprise dashboard.
 
-## The Solution
-This project is an automated AWS first responder. It is a serverless pipeline that catches security and compliance alarms, looks up helpful background information, and automatically locks down critical threats in seconds without waiting for a human.
+---
 
-## How It Works
-The pipeline uses a 5-step workflow managed by AWS Step Functions:
+## Architecture Overview
 
-1. **Catch (EventBridge & SQS):** When a security or compliance alarm goes off (like AWS Security Hub detecting an overly privileged IAM role or an exposed database), EventBridge catches it. It passes the alarm to an SQS queue so no alerts are ever dropped, even if a thousand come in at once.
-2. **Investigate (Python Lambda):** The first script acts like a detective. It opens the raw alert and adds helpful background context (like finding out which developer owns the exposed S3 bucket).
-3. **Judge (Python Lambda):** The second script looks at the evidence and decides if the threat is "Critical" (needs immediate lockdown) or "Low" (minor misconfiguration).
-4. **Act (Python Lambda & SNS):** 
-   - If the threat is **Critical**, the Quarantine script uses `boto3` to automatically attach a "Deny-All" policy to the compromised resource, isolating it instantly.
-   - If the threat is **Low**, it skips the lockdown and sends an email/Slack message to the team via Amazon SNS.
-5. **Audit (DynamoDB):** Every single action the system takes is permanently saved in a DynamoDB table so auditors can review exactly what happened and when.
+```
+[ Security Hub / Simulated Event ]
+               │
+               ▼
+       [ EventBridge Rule ]
+               │
+               ▼
+     [ Step Functions Flow ]
+       ├── 1. Enrichment Worker (Python Lambda)
+       ├── 2. Severity Evaluation Worker (Python Lambda)
+       └── 3. Choice: Severity == CRITICAL?
+               ├── YES: Quarantine Worker (Python Lambda)
+               │         ├── Guardrail Check (Protected Role Allowlist)
+               │         ├── Attach DenyAll Policy (AWS IAM)
+               │         └── Audit Persistence (DynamoDB)
+               └── NO:  Notification Dispatch (Amazon SNS)
+                               │
+                               ▼
+               [ Next.js Management Dashboard ]
+                 ├── Dynamic SSM Parameter Discovery
+                 ├── Live Threat Feed & Compliance Status
+                 ├── Interactive Attack Simulation Engine
+                 └── Sandbox Data Purge
+```
 
-## Architecture & Engineering Decisions
+---
 
-**Hybrid Infrastructure as Code (IaC) & Separation of Concerns**
-Why use both CloudFormation and AWS CDK? To satisfy a strict enterprise security requirement: *Separation of Concerns*.
+## Core Components
 
-1. **The "Dangerous" Stuff (Raw CloudFormation YAML):** IAM Roles (which control who has power) and SNS Topics (which control data leaving the AWS account) are highly sensitive. Security Teams demand these are kept in a separate, plain-text YAML file. This allows auditors to quickly read and approve the security boundaries without digging through hundreds of lines of application code. We only created two resources here because they are the only ones security cares about!
-2. **The Application Plumbing (AWS CDK with TypeScript):** The queues, databases, and workflow logic (SQS, DynamoDB, Step Functions) are just the application's "plumbing." Because security teams don't need to manually audit the plumbing, developers are free to build this rapidly using TypeScript and the AWS CDK. 
+### 1. Hybrid Infrastructure as Code (IaC)
+- **Foundation Layer (Raw CloudFormation YAML):** Declares critical security boundaries (IAM execution roles and SNS alert topics) in clean declarative YAML to allow independent security auditing.
+- **Application Layer (AWS CDK v2 TypeScript):** Declares dynamic cloud services (Step Functions state machine, EventBridge rules, SQS queues, DynamoDB table, Lambda workers) using `CfnInclude` to merge the foundation template.
+- **CI/CD Pipeline Layer (AWS CodePipeline):** GitOps-driven automated build and deployment pipeline connected to GitHub via AWS CodeStar Connections. Every push to `main` triggers a complete synth and CloudFormation deployment.
 
-To make them work together, the CDK app uses the `CfnInclude` tool to suck up the raw YAML file, seamlessly gluing the strict security foundation and the fast application logic together into one perfect deployment.
+### 2. State Machine & Automated Containment
+- **Enrichment (`lambdas/enrichment.py`):** Extracts resource IDs, finding types, descriptions, and metadata from raw AWS Security Hub payloads.
+- **Severity Evaluation (`lambdas/severity_check.py`):** Triages findings based on compliance criteria and risk indicators.
+- **Quarantine & Containment (`lambdas/quarantine.py`):** 
+  - **Guardrail Protection:** Enforces a strict allowlist (`Admin`, `AdministratorAccess`, `cli-user`) to prevent automated lockout of administrative identities.
+  - **Automated Quarantine:** Uses `boto3` to attach an inline `AutomatedQuarantine-DenyAll` policy directly to the compromised IAM role.
+  - **Audit Logging:** Persists structured incident records to Amazon DynamoDB (`AuditedLogTable`).
+
+### 3. Enterprise Next.js Dashboard (`/frontend`)
+- **Zero Hardcoding (AWS SSM Parameter Store):** Dynamic discovery of runtime resources via `/ssarp/production/audit-table-name` and `/ssarp/production/state-machine-arn`.
+- **Interactive Red Team Simulation:** A single-click "Launch Simulated Attack" button triggers the live AWS Step Functions pipeline via `@aws-sdk/client-sfn` and EventBridge.
+- **Sandbox Management:** "Reset Sandbox" button purges test records (`SIM-*`) from DynamoDB without touching production data.
+- **Enterprise Design:** Structured, light-mode financial/security portal layout built with Next.js App Router, Tailwind CSS, and Lucide icons.
+
+---
+
+## Repository Structure
+
+```
+├── bin/
+│   └── ssarp.ts                 # CDK application entrypoint
+├── lib/
+│   ├── ssarp-stack.ts           # Core serverless backend architecture
+│   ├── pipeline-stack.ts        # AWS CodePipeline CI/CD definition
+│   └── app-stage.ts             # Deployment stage construct
+├── lambdas/
+│   ├── enrichment.py            # Event context enrichment logic
+│   ├── severity_check.py        # Automated severity evaluation
+│   └── quarantine.py            # Automated IAM lockdown & DynamoDB audit logging
+├── frontend/
+│   ├── src/app/
+│   │   ├── api/events/route.ts  # DynamoDB scan & event formatting API
+│   │   ├── api/simulate/route.ts# Direct Step Functions & EventBridge trigger
+│   │   ├── api/reset/route.ts   # DynamoDB sandbox cleanup API
+│   │   ├── layout.tsx           # Base HTML shell & typography
+│   │   └── page.tsx             # Enterprise incident monitoring dashboard
+│   └── package.json             # Next.js frontend dependencies
+├── security-base.yaml           # Security Foundation Tier 1 CloudFormation template
+└── cdk.json                     # AWS CDK configuration
+```
+
+---
+
+## Local Development & Verification
+
+### 1. Backend Deployment
+```bash
+# Bootstrap AWS Account & Region (First time only)
+npx cdk bootstrap
+
+# Deploy the CI/CD Pipeline
+npx cdk deploy SsarpPipelineStack
+```
+
+### 2. Frontend Dashboard
+```bash
+cd frontend
+npm install
+
+# Start local server
+npm run dev
+```
+
+Open `http://localhost:3000` to access the live dashboard.
