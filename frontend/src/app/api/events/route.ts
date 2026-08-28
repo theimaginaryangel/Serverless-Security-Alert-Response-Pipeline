@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
 
 const region = process.env.AWS_REGION || "eu-north-1";
 const client = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(client);
+const ssmClient = new SSMClient({ region });
 
 export interface FormattedSecurityEvent {
   id: string;
@@ -66,12 +68,23 @@ const FALLBACK_READABLE_EVENTS: FormattedSecurityEvent[] = [
 ];
 
 export async function GET() {
-  const tableName = process.env.AUDIT_TABLE_NAME;
+  let tableName = process.env.AUDIT_TABLE_NAME;
+
+  // ENTERPRISE BEST PRACTICE: If not hardcoded, dynamically fetch it from AWS SSM Parameter Store!
+  if (!tableName) {
+    try {
+      const ssmCommand = new GetParameterCommand({ Name: "/ssarp/production/audit-table-name" });
+      const ssmResponse = await ssmClient.send(ssmCommand);
+      tableName = ssmResponse.Parameter?.Value;
+    } catch (ssmError) {
+      console.log("SSM lookup failed (Parameter might not be deployed yet).");
+    }
+  }
 
   if (!tableName) {
     return NextResponse.json({
       source: "demo",
-      message: "Set AUDIT_TABLE_NAME in .env.local to query a specific AWS DynamoDB table.",
+      message: "No table name in .env and SSM Parameter Store lookup failed. Returning sample data.",
       events: FALLBACK_READABLE_EVENTS
     });
   }

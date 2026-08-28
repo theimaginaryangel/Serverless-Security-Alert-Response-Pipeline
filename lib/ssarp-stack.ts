@@ -27,6 +27,12 @@ export class SsarpStack extends cdk.Stack{
     billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // Only pay exactly for what we use!
     });  
 
+    // Publish the table name to SSM Parameter Store so the Next.js frontend can find it dynamically!
+    new cdk.aws_ssm.StringParameter(this, 'AuditTableNameParam', {
+      parameterName: '/ssarp/production/audit-table-name',
+      stringValue: auditTable.tableName,
+    });  
+
       // 3. The Inbox (SQS Queue)
     const alertQueue = new sqs.Queue(this, 'SecurityAlertQueue');
     
