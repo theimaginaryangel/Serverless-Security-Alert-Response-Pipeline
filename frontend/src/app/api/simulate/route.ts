@@ -42,18 +42,20 @@ export async function POST() {
 
   // 1. Direct Step Functions Execution (Guaranteed instant trigger)
   try {
-    let stateMachineArn = "";
+    let stateMachineArn = process.env.STATE_MACHINE_ARN || "";
 
-    // Try reading from SSM first
-    try {
-      const ssmRes = await ssmClient.send(new GetParameterCommand({ Name: "/ssarp/production/state-machine-arn" }));
-      stateMachineArn = ssmRes.Parameter?.Value || "";
-    } catch {
-      // If SSM parameter isn't deployed yet, discover it dynamically
-      const sfnList = await sfnClient.send(new ListStateMachinesCommand({ maxResults: 20 }));
-      const found = sfnList.stateMachines?.find(sm => sm.name?.includes("SecurityPipeline"));
-      if (found?.stateMachineArn) {
-        stateMachineArn = found.stateMachineArn;
+    if (!stateMachineArn) {
+      // Try reading from SSM first
+      try {
+        const ssmRes = await ssmClient.send(new GetParameterCommand({ Name: "/ssarp/production/state-machine-arn" }));
+        stateMachineArn = ssmRes.Parameter?.Value || "";
+      } catch {
+        // If SSM parameter isn't deployed yet, discover it dynamically
+        const sfnList = await sfnClient.send(new ListStateMachinesCommand({ maxResults: 20 }));
+        const found = sfnList.stateMachines?.find(sm => sm.name?.includes("SecurityPipeline"));
+        if (found?.stateMachineArn) {
+          stateMachineArn = found.stateMachineArn;
+        }
       }
     }
 
