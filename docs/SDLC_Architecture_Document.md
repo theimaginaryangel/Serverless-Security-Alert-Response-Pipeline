@@ -90,4 +90,13 @@ The system supports automated validation through an integrated Red Team simulati
 1. **Simulation Dispatch:** The Next.js API (`/api/simulate`) invokes `StartExecutionCommand` on Step Functions and emits to EventBridge.
 2. **Workflow Progression:** Step Functions validates JSON schemas, enriches resource targets, evaluates risk levels, applies quarantine logic, and records state.
 3. **Audit Verification:** DynamoDB scan queries reflect live status (`ISOLATED`, `LOGGED`, `SKIPPED`).
-4. **Sandbox Reset:** The purge API (`/api/reset`) safely cleans test entries matching `SIM-*` prefixes.
+## 6. Engineering Challenges & Problem Resolution
+ 
+| # | Challenge Encountered | Root Cause | Engineering Solution |
+| :--- | :--- | :--- | :--- |
+| **1** | **Lambda Cold-Start Execution Timeout** | Default Lambda timeout (3.0s) was insufficient during initial SDK initialization across IAM and DynamoDB. | Elevated timeout parameter to `30s` in CDK constructor (`timeout: cdk.Duration.seconds(30)`). |
+| **2** | **Potential Administrative Lockout** | Unconstrained quarantine automation risked isolating administrative or CI/CD deployment roles. | Integrated an immutable allowlist (`PROTECTED_ROLES`) in `quarantine.py` to enforce safety guardrails. |
+| **3** | **Dynamic Resource Discovery** | Generated resource names (DynamoDB table, Step Functions ARN) create coupling issues if hardcoded in `.env`. | Leveraged AWS Systems Manager (SSM) Parameter Store for runtime service discovery via SDK. |
+| **4** | **Local SDK Execution Latency** | Node.js AWS SDK hung for ~60s per request attempting to reach EC2 metadata (`169.254.169.254`) on Windows. | Enforced `AWS_EC2_METADATA_DISABLED="true"` in local environment configuration. |
+| **5** | **Safe Demonstration for Evaluators** | Demonstrating incident response without generating real vulnerabilities or corrupting audit metrics. | Engineered an interactive simulation engine (`/api/simulate`) and scoped sandbox purge route (`/api/reset`). |
+

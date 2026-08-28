@@ -83,6 +83,30 @@ An event-driven, automated security triage and incident containment pipeline bui
 
 ---
 
+## Engineering Challenges & How We Solved Them
+
+1. **Lambda Cold-Start Timeouts (3.0s Limit)**
+   - **The Problem:** The first time the Quarantine Lambda ran, initializing the AWS SDK for IAM and DynamoDB took 4.4 seconds. AWS killed the function because the default timeout was 3 seconds.
+   - **The Fix:** Increased the Lambda worker timeouts to 30 seconds in the CDK stack (`timeout: cdk.Duration.seconds(30)`).
+
+2. **Preventing Accidental Admin Lockouts (Self-Destruct Prevention)**
+   - **The Problem:** An automated quarantine robot could accidentally lock out administrators or the AWS CLI if a false alarm occurred.
+   - **The Fix:** Built an explicit allowlist in the Python script (`PROTECTED_ROLES = ["Admin", "cli-user"]`). If an alert targets a protected identity, the script skips the lockdown and records a safe audit log.
+
+3. **Eliminating Hardcoded Database & Pipeline Names**
+   - **The Problem:** AWS generates random IDs for DynamoDB tables and Step Functions during deployment, making static `.env` files hard to maintain.
+   - **The Fix:** Used AWS Systems Manager (SSM) Parameter Store. The CDK stack automatically publishes resource names into SSM paths, and the Next.js API discovers them dynamically at runtime.
+
+4. **Local Development SDK Delays (EC2 Metadata Hang)**
+   - **The Problem:** When running Next.js locally, the AWS SDK hung for 30–60 seconds trying to reach an internal EC2 server IP (`169.254.169.254`) before falling back to local credentials.
+   - **The Fix:** Added `AWS_EC2_METADATA_DISABLED="true"` to local configuration to force immediate credential resolution in milliseconds.
+
+5. **Simulating Live Threats Safely for Recruiters**
+   - **The Problem:** Security pipelines are invisible when there are no active attacks, but you cannot run real destructive exploits just for a demo.
+   - **The Fix:** Built an interactive simulation route (`/api/simulate`) that runs the full Step Functions workflow using harmless mock findings, alongside a "Reset Sandbox" button that purges only test records (`SIM-*`).
+
+---
+
 ## Local Development & Verification
 
 ### 1. Backend Deployment
