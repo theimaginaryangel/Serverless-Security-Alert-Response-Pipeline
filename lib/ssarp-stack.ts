@@ -104,6 +104,12 @@ export class SsarpStack extends cdk.Stack{
       definitionBody: sfn.DefinitionBody.fromChainable(flowchart),
     });
 
+    // Publish the State Machine ARN to SSM so the Next.js frontend can trigger it directly!
+    new cdk.aws_ssm.StringParameter(this, 'StateMachineArnParam', {
+      parameterName: '/ssarp/production/state-machine-arn',
+      stringValue: pipeline.stateMachineArn,
+    });
+
         // 9. Hand the Manager's phone number to the Security Guard
     alertRule.addTarget(new targets.SfnStateMachine(pipeline));
 
