@@ -10,18 +10,19 @@ def lambda_handler(event, _context):
     """
     print("Starting Severity Check...")
 
-    # 1. Grab the original alert that our Enrichment script passed to us!
-    original_alert = event.get('original_alert', {})
+    # 1. Check if the enrichment step already extracted a severity hint
+    severity_hint = event.get('severity_hint', '')
 
-    # 2. Turn the whole alert into uppercase text to search it.
+    # 2. Also grab the original alert to search for keywords
+    original_alert = event.get('original_alert', {})
     alert_text = json.dumps(original_alert).upper()
 
     # 3. Make a judgment (The Logic)
     severity_decision = "LOW"
 
-    if "CRITICAL" in alert_text or "UNAUTHORIZED" in alert_text:
+    if severity_hint == "CRITICAL" or "CRITICAL" in alert_text or "UNAUTHORIZED" in alert_text:
         severity_decision = "CRITICAL"
-    elif "HIGH" in alert_text:
+    elif severity_hint == "HIGH" or "HIGH" in alert_text:
         severity_decision = "HIGH"
 
     print(f"Decision made: This alert is {severity_decision}")
