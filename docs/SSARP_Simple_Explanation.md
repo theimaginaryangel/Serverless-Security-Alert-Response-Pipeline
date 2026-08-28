@@ -20,7 +20,6 @@ It also has a live dashboard where you can watch everything happening in real ti
 *   **AWS Step Functions (The Manager):** This is the boss who runs the flowchart. It receives the alarm from EventBridge and sends it through a multi-step workflow: first to the investigator, then to the judge, and finally to the enforcer. You can literally watch a visual flowchart light up green in real time in the AWS Console.
 *   **AWS Lambda with Python (The Workers):** These are three small Python scripts that do the actual work. They only run when they are needed (that is what "serverless" means), and you only pay for the exact milliseconds they run.
 *   **Amazon DynamoDB (The Filing Cabinet):** Every single action the system takes is permanently saved here. If an auditor asks, "What happened to that compromised account on August 28th?", you can pull up the exact record.
-*   **Amazon SQS (The Waiting Room):** If a thousand alarms fire at the exact same time, SQS acts as a buffer so no alerts are ever dropped. They wait in line and get processed one by one.
 *   **Amazon SNS (The Phone Tree):** For non-critical alerts that do not need automatic lockdown, SNS sends an email or Slack notification to the human security team so they can investigate at their own pace.
 *   **AWS SSM Parameter Store (The Address Book):** When AWS creates your database, it gives it a random generated name. Instead of hardcoding that name, we save it in SSM. The frontend asks SSM at runtime: "What is the database name?" This is how enterprise cloud applications avoid configuration drift.
 *   **AWS CodePipeline (The Automated Courier):** Every time you push code to GitHub, CodePipeline automatically downloads your code, builds it, and deploys the updated infrastructure to AWS. You never have to manually deploy again.
@@ -34,12 +33,11 @@ When you run `npx cdk deploy`, here is everything that gets created in your AWS 
 
 1.  **The Security Foundation (`security-base.yaml`):** AWS reads the YAML file and creates an IAM execution role (the "keys to the building") and an SNS notification topic (the "phone tree"). These are isolated in their own file so auditors can review them independently.
 2.  **The Filing Cabinet (DynamoDB Table):** A database table called `AuditedLogTable` is created. Every alert that flows through the pipeline gets permanently recorded here with a unique `alertId`.
-3.  **The Waiting Room (SQS Queue):** A queue called `SecurityAlertQueue` is created to buffer alerts during high-traffic spikes.
-4.  **The Alarm Sensor (EventBridge Rule):** A rule is created that says: "If ANY event comes from `aws.securityhub`, catch it and send it to the Step Functions pipeline."
-5.  **The Three Workers (Lambda Functions):** Three Python scripts are uploaded from your `lambdas/` folder and deployed as serverless functions with a 30-second timeout each.
-6.  **The Flowchart (Step Functions State Machine):** A visual workflow is created that chains the three workers together: Enrichment, then Severity Check, then a decision branch (Critical goes to Quarantine, non-critical goes to SNS).
-7.  **The Address Book (SSM Parameters):** The randomly generated DynamoDB table name and Step Functions ARN are saved to SSM so the Next.js frontend can find them dynamically.
-8.  **The Permissions (IAM Grants):** The Quarantine worker is given explicit permission to read/write to DynamoDB (`grantReadWriteData`) and to attach IAM policies to compromised roles (`iam:PutRolePolicy`).
+3.  **The Alarm Sensor (EventBridge Rule):** A rule is created that says: "If ANY event comes from `aws.securityhub`, catch it and send it to the Step Functions pipeline."
+4.  **The Three Workers (Lambda Functions):** Three Python scripts are uploaded from your `lambdas/` folder and deployed as serverless functions with a 30-second timeout each.
+5.  **The Flowchart (Step Functions State Machine):** A visual workflow is created that chains the three workers together: Enrichment, then Severity Check, then a decision branch (Critical goes to Quarantine, non-critical goes to SNS).
+6.  **The Address Book (SSM Parameters):** The randomly generated DynamoDB table name and Step Functions ARN are saved to SSM so the Next.js frontend can find them dynamically.
+7.  **The Permissions (IAM Grants):** The Quarantine worker is given explicit permission to read/write to DynamoDB (`grantReadWriteData`) and to attach IAM policies to compromised roles (`iam:PutRolePolicy`).
 
 ---
 
